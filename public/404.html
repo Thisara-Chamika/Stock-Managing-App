@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Calculator Stock Tracker</title>
+    <script>
+      // GitHub Pages serves this file for any unknown path.  Since we use a
+      // HashRouter, simply forwarding to the app root is enough.
+      var base = '/';
+      var segments = window.location.pathname.split('/').filter(Boolean);
+      if (segments.length > 0) {
+        base = '/' + segments[0] + '/';
+      }
+      window.location.replace(base);
+    </script>
+  </head>
+  <body></body>
+</html>
