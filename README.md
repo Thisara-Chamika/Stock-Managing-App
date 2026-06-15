@@ -114,10 +114,39 @@ npm install
 ## Development
 
 ```bash
-npm run dev       # start the Vite dev server at http://localhost:5173
+npm run dev       # start the Vite dev server at http://127.0.0.1:5300
 npm run lint      # ESLint
 npm run build     # type-check + production build into dist/
-npm run preview   # serve the production build locally
+npm run preview   # serve the production build locally at http://127.0.0.1:4300
+```
+
+### Troubleshooting: `EACCES: permission denied` on Windows
+
+If `npm run dev` fails with something like
+`Error: listen EACCES: permission denied 127.0.0.1:5173`, Windows has
+reserved that port range (usually because Hyper-V or WSL is installed).
+
+List the reserved ranges in PowerShell:
+
+```powershell
+netsh interface ipv4 show excludedportrange protocol=tcp
+```
+
+To work around it, simply pick a free port — `vite.config.ts` already
+defaults to `5300` (dev) and `4300` (preview) which sit outside the typical
+Hyper-V exclusion ranges. If those happen to be reserved on your machine,
+either edit `vite.config.ts` or override at the CLI:
+
+```bash
+npm run dev -- --port 5400 --host 127.0.0.1
+```
+
+As a deeper fix you can also reset the Windows NAT service (admin
+PowerShell):
+
+```powershell
+net stop winnat
+net start winnat
 ```
 
 ## Deploying to GitHub Pages
