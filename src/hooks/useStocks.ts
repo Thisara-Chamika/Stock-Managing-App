@@ -8,6 +8,7 @@ import {
   restoreBackup,
   saveStocks,
   updateCalculator as updateCalculatorInStorage,
+  type NewCalculatorInput,
 } from '@/utils/storage';
 
 /**
@@ -34,8 +35,8 @@ export function useStocks() {
     return () => window.removeEventListener('storage', onStorage);
   }, []);
 
-  const create = useCallback((date: string, quantities: [number, number, number]): StockBatch => {
-    const batch = createStockInStorage({ date, quantities });
+  const create = useCallback((date: string, items: NewCalculatorInput[]): StockBatch => {
+    const batch = createStockInStorage({ date, items });
     setStocks((prev) => [batch, ...prev]);
     return batch;
   }, []);
