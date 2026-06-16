@@ -8,8 +8,14 @@ import { QuantityControl } from '@/components/QuantityControl';
 import { SummaryCard } from '@/components/SummaryCard';
 import { TopBar } from '@/components/TopBar';
 import type { Calculator, StockBatch } from '@/types/stock';
-import { haveToPay } from '@/types/stock';
-import { formatDisplayDate } from '@/utils/format';
+import {
+  haveToPay,
+  pendingSupplierPayment,
+  revenuePotential,
+  soldRevenue,
+  stockCost,
+} from '@/types/stock';
+import { formatDisplayDate, formatMoney } from '@/utils/format';
 import { summarizeBatch } from '@/utils/storage';
 
 interface StockDetailPageProps {
@@ -24,7 +30,7 @@ interface StockDetailPageProps {
 
 /**
  * Detail page for a single stock batch.  Lets the user adjust sold and paid
- * quantities for each calculator type via the +/- steppers.
+ * quantities for each calculator and view all derived financial metrics.
  */
 export function StockDetailPage({ stocks, onUpdateCalculator, onDelete }: StockDetailPageProps): JSX.Element {
   const navigate = useNavigate();
@@ -110,16 +116,20 @@ export function StockDetailPage({ stocks, onUpdateCalculator, onDelete }: StockD
 
       <section className="space-y-3">
         <div className="rounded-2xl bg-white p-4 shadow-card">
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Calculator name</p>
-          <p className="mt-1 text-xl font-semibold text-slate-900">{activeCalc.name}</p>
-          <div className="mt-3 grid grid-cols-2 gap-3">
-            <Stat label="In stock" value={activeCalc.quantity} />
-            <Stat label="Available" value={activeCalc.quantity - activeCalc.soldQuantity} tone="muted" />
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Calculator type</p>
+          <p className="mt-1 text-xl font-semibold text-slate-900">
+            {activeCalc.category || 'Untitled item'}
+          </p>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <Stat label="Quantity" value={String(activeCalc.quantity)} tone="brand" />
+            <Stat label="Available" value={String(activeCalc.quantity - activeCalc.soldQuantity)} tone="muted" />
+            <Stat label="Buying Price" value={formatMoney(activeCalc.buyingPrice)} tone="muted" />
+            <Stat label="Selling Price" value={formatMoney(activeCalc.sellingPrice)} tone="muted" />
           </div>
         </div>
 
         <QuantityControl
-          label="Sold quantity"
+          label="Sold Quantity"
           value={activeCalc.soldQuantity}
           max={activeCalc.quantity}
           onChange={(next) => onUpdateCalculator(batch.id, activeCalc.id, { soldQuantity: next })}
@@ -128,7 +138,7 @@ export function StockDetailPage({ stocks, onUpdateCalculator, onDelete }: StockD
         />
 
         <QuantityControl
-          label="Paid quantity"
+          label="Paid Quantity"
           value={activeCalc.paidQuantity}
           max={activeCalc.soldQuantity}
           onChange={(next) => onUpdateCalculator(batch.id, activeCalc.id, { paidQuantity: next })}
@@ -148,20 +158,52 @@ export function StockDetailPage({ stocks, onUpdateCalculator, onDelete }: StockD
               {pending}
             </p>
             <p className={`text-xs ${pending > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>
-              {pending > 0 ? 'still owed to supplier' : 'all settled'}
+              {pending > 0
+                ? `${formatMoney(pendingSupplierPayment(activeCalc))} owed to supplier`
+                : 'all settled'}
             </p>
+          </div>
+        </div>
+
+        <div className="rounded-2xl bg-white p-4 shadow-card">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Financial breakdown
+          </p>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <MoneyStat label="Stock Cost" value={stockCost(activeCalc)} />
+            <MoneyStat label="Revenue Potential" value={revenuePotential(activeCalc)} />
+            <MoneyStat label="Sold Revenue" value={soldRevenue(activeCalc)} tone="success" />
+            <MoneyStat
+              label="Pending Supplier Payment"
+              value={pendingSupplierPayment(activeCalc)}
+              tone={pending > 0 ? 'warning' : 'default'}
+            />
           </div>
         </div>
       </section>
 
-      <div className="mt-5">
+      <div className="mt-5 space-y-3">
         <SummaryCard
-          title="Batch summary"
+          title="Batch quantities"
           rows={[
-            { label: 'Total quantity', value: totals.quantity },
-            { label: 'Total sold', value: totals.sold, tone: 'success' },
-            { label: 'Total paid', value: totals.paid },
-            { label: 'Total pending payment', value: totals.pending, tone: 'warning' },
+            { label: 'Total Quantity', value: totals.quantity },
+            { label: 'Total Sold Quantity', value: totals.sold, tone: 'success' },
+            { label: 'Total Paid Quantity', value: totals.paid },
+            { label: 'Total Pending Quantity', value: totals.pendingQty, tone: 'warning' },
+          ]}
+        />
+        <SummaryCard
+          title="Batch financials"
+          rows={[
+            { label: 'Total Inventory Cost', value: totals.totalCost, format: 'money' },
+            { label: 'Total Revenue Potential', value: totals.totalRevenuePotential, format: 'money' },
+            { label: 'Total Sold Revenue', value: totals.totalSoldRevenue, format: 'money', tone: 'success' },
+            {
+              label: 'Total Pending Supplier Payment',
+              value: totals.totalPendingPayment,
+              format: 'money',
+              tone: 'warning',
+            },
           ]}
         />
       </div>
@@ -186,27 +228,48 @@ export function StockDetailPage({ stocks, onUpdateCalculator, onDelete }: StockD
   );
 }
 
-function Stat({
-  label,
-  value,
-  tone = 'default',
-}: {
+/* -------------------------------------------------------------------------- */
+/*  Stat cells                                                                 */
+/* -------------------------------------------------------------------------- */
+
+interface StatProps {
   label: string;
-  value: number;
-  tone?: 'default' | 'muted';
-}): JSX.Element {
+  value: string;
+  tone?: 'brand' | 'muted';
+}
+
+function Stat({ label, value, tone = 'brand' }: StatProps): JSX.Element {
+  const isMuted = tone === 'muted';
   return (
-    <div className={`rounded-xl px-3 py-2 ${tone === 'muted' ? 'bg-slate-50' : 'bg-brand-50'}`}>
+    <div className={`rounded-xl px-3 py-2 ${isMuted ? 'bg-slate-50' : 'bg-brand-50'}`}>
       <p
         className={`text-[11px] font-medium uppercase tracking-wide ${
-          tone === 'muted' ? 'text-slate-500' : 'text-brand-700'
+          isMuted ? 'text-slate-500' : 'text-brand-700'
         }`}
       >
         {label}
       </p>
-      <p className={`text-lg font-semibold ${tone === 'muted' ? 'text-slate-800' : 'text-brand-700'}`}>
-        {value}
-      </p>
+      <p className={`text-base font-semibold ${isMuted ? 'text-slate-800' : 'text-brand-700'}`}>{value}</p>
+    </div>
+  );
+}
+
+interface MoneyStatProps {
+  label: string;
+  value: number;
+  tone?: 'default' | 'success' | 'warning';
+}
+
+function MoneyStat({ label, value, tone = 'default' }: MoneyStatProps): JSX.Element {
+  const toneClasses: Record<NonNullable<MoneyStatProps['tone']>, string> = {
+    default: 'bg-slate-50 text-slate-900',
+    success: 'bg-emerald-50 text-emerald-700',
+    warning: 'bg-amber-50 text-amber-700',
+  };
+  return (
+    <div className={`rounded-xl px-3 py-2 ${toneClasses[tone]}`}>
+      <p className="text-[11px] font-medium uppercase tracking-wide opacity-70">{label}</p>
+      <p className="text-base font-semibold leading-tight">{formatMoney(value)}</p>
     </div>
   );
 }
