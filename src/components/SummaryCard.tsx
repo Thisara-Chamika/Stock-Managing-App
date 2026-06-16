@@ -1,7 +1,11 @@
+import { formatMoney } from '@/utils/format';
+
 interface SummaryRow {
   label: string;
   value: number;
   tone?: 'default' | 'success' | 'warning';
+  /** When 'money', the value is rendered through `formatMoney`. Default 'number'. */
+  format?: 'number' | 'money';
 }
 
 interface SummaryCardProps {
@@ -11,7 +15,8 @@ interface SummaryCardProps {
 
 /**
  * Tabular summary card used at the bottom of the stock detail page to show
- * aggregate totals across all 3 calculators.
+ * aggregate totals.  Each row can independently choose count vs money
+ * formatting.
  */
 export function SummaryCard({ title = 'Summary', rows }: SummaryCardProps): JSX.Element {
   return (
@@ -31,7 +36,7 @@ export function SummaryCard({ title = 'Summary', rows }: SummaryCardProps): JSX.
                     : 'text-slate-900',
               ].join(' ')}
             >
-              {row.value}
+              {row.format === 'money' ? formatMoney(row.value) : row.value}
             </dd>
           </div>
         ))}

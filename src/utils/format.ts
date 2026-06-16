@@ -30,3 +30,16 @@ export function fileTimestamp(): string {
     now.getMinutes(),
   )}`;
 }
+
+/**
+ * Format a money amount with the Sri Lankan rupee prefix and Indian-style
+ * digit grouping (1,00,000) which feels natural in the local market.
+ *
+ *   formatMoney(4500)    -> "Rs 4,500"
+ *   formatMoney(125000)  -> "Rs 1,25,000"
+ *   formatMoney(NaN)     -> "Rs 0"
+ */
+export function formatMoney(value: number): string {
+  const safe = Number.isFinite(value) ? Math.round(value) : 0;
+  return `Rs ${safe.toLocaleString('en-IN')}`;
+}

@@ -14,18 +14,23 @@ desktop browser as well.
 ## Features
 
 - **Stock batches** — record every purchase from your supplier with a date.
-- **3 calculator types per batch** — Calculator 1, 2 and 3, with custom
-  quantities.
-- **Sold quantity tracking** — `+` / `−` controls that can never exceed the
-  in-stock quantity.
-- **Paid quantity tracking** — `+` / `−` controls that can never exceed the
-  sold quantity.
+- **Multiple calculator items per batch** — add as many calculators as the
+  batch contains. Each item carries its own category, quantity, buying price
+  and selling price.
+- **Real calculator categories** — `FX-991 EX`, `FX-991 ES`, `FX-991 CW`,
+  `FX-991 ES Original`, `FX-991 MS 2`.
+- **Sold / paid quantity tracking** — `+` / `−` controls that can never
+  exceed in-stock or sold respectively.
 - **Have-to-pay** — always computed as `sold − paid`, never stored, so totals
   can never drift out of sync.
-- **Batch summary** — running totals (quantity, sold, paid, pending) per
-  batch and across all batches.
+- **Financial breakdown per item** — stock cost, revenue potential, sold
+  revenue and pending supplier payment, all computed live.
+- **Batch + all-time summaries** — count and money totals on the list, the
+  detail page and the home header.
 - **Backup / Restore** — export everything as JSON; re-import to replace the
   current data after a confirmation prompt.
+- **Auto-migration** — old data from previous versions is upgraded on first
+  load with no manual steps and no crashes.
 - **Delete batch** — with a confirmation modal so it can't be done by accident.
 - **Mobile-first UI** — capped at 430 px wide, centred on larger screens,
   rounded white cards, soft shadows, large touch targets, sticky FAB.
@@ -80,26 +85,54 @@ src/
 ## Data model
 
 ```ts
+const CALCULATOR_CATEGORIES = [
+  'FX-991 EX',
+  'FX-991 ES',
+  'FX-991 CW',
+  'FX-991 ES Original',
+  'FX-991 MS 2',
+] as const;
+
 interface Calculator {
   id: string;
-  name: string;          // "Calculator 1" | "Calculator 2" | "Calculator 3"
-  quantity: number;      // bought from supplier
-  soldQuantity: number;  // 0 .. quantity
-  paidQuantity: number;  // 0 .. soldQuantity
+  category: string;       // one of CALCULATOR_CATEGORIES for new entries
+  quantity: number;       // bought from supplier
+  soldQuantity: number;   // 0 .. quantity
+  paidQuantity: number;   // 0 .. soldQuantity
+  buyingPrice: number;    // LKR per unit, > 0
+  sellingPrice: number;   // LKR per unit, > 0
 }
 
 interface StockBatch {
   id: string;
-  date: string;          // ISO YYYY-MM-DD
-  createdAt: number;     // epoch millis (used for newest-first sort)
-  calculators: Calculator[]; // always exactly 3
+  date: string;           // ISO YYYY-MM-DD
+  createdAt: number;      // epoch millis (used for newest-first sort)
+  calculators: Calculator[]; // one or more items
 }
 
 // Derived, never stored:
-haveToPay = soldQuantity - paidQuantity;
+haveToPay              = soldQuantity - paidQuantity;
+stockCost              = quantity     * buyingPrice;
+revenuePotential       = quantity     * sellingPrice;
+soldRevenue            = soldQuantity * sellingPrice;
+pendingSupplierPayment = haveToPay    * buyingPrice;
 ```
 
 LocalStorage key: `cst.stocks.v1` — value is a JSON array of `StockBatch`.
+
+### Migration of legacy data
+
+Previous versions stored a fixed 3-item shape with a `name` field and no
+prices. On read, `getStocks()` pipes every record through `migrateStocks()`
+which:
+
+- copies the old `name` into the new `category` field,
+- defaults `buyingPrice` and `sellingPrice` to `0`,
+- writes the upgraded shape back to LocalStorage so future loads are fast.
+
+Old backup JSON files import successfully too — the same migrator runs on the
+parsed payload before it replaces the live data. Items with `Rs 0` prices are
+simply legacy records that pre-date the financial tracking feature.
 
 ## Installation
 

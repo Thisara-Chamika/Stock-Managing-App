@@ -7,7 +7,7 @@ import { FloatingActionButton } from '@/components/FloatingActionButton';
 import { StockCard } from '@/components/StockCard';
 import { TopBar } from '@/components/TopBar';
 import type { StockBatch } from '@/types/stock';
-import { fileTimestamp } from '@/utils/format';
+import { fileTimestamp, formatMoney } from '@/utils/format';
 import { buildBackup, summarizeBatch } from '@/utils/storage';
 
 interface StockListPageProps {
@@ -33,10 +33,12 @@ export function StockListPage({ stocks, isLoading, onImport }: StockListPageProp
       return {
         quantity: acc.quantity + t.quantity,
         sold: acc.sold + t.sold,
-        pending: acc.pending + t.pending,
+        pendingQty: acc.pendingQty + t.pendingQty,
+        totalSoldRevenue: acc.totalSoldRevenue + t.totalSoldRevenue,
+        totalPendingPayment: acc.totalPendingPayment + t.totalPendingPayment,
       };
     },
-    { quantity: 0, sold: 0, pending: 0 },
+    { quantity: 0, sold: 0, pendingQty: 0, totalSoldRevenue: 0, totalPendingPayment: 0 },
   );
 
   const handleExport = (): void => {
@@ -142,7 +144,15 @@ export function StockListPage({ stocks, isLoading, onImport }: StockListPageProp
           <div className="mt-2 grid grid-cols-3 gap-2 text-center">
             <HeaderStat label="Calculators" value={grandTotals.quantity} />
             <HeaderStat label="Sold" value={grandTotals.sold} />
-            <HeaderStat label="Pending" value={grandTotals.pending} highlight />
+            <HeaderStat label="Pending" value={grandTotals.pendingQty} highlight />
+          </div>
+          <div className="mt-2 grid grid-cols-2 gap-2 text-center">
+            <HeaderStat label="Sold revenue" value={formatMoney(grandTotals.totalSoldRevenue)} />
+            <HeaderStat
+              label="Pending payment"
+              value={formatMoney(grandTotals.totalPendingPayment)}
+              highlight
+            />
           </div>
         </section>
       ) : null}
@@ -192,13 +202,16 @@ function HeaderStat({
   highlight = false,
 }: {
   label: string;
-  value: number;
+  value: number | string;
   highlight?: boolean;
 }): JSX.Element {
+  // Use a slightly smaller font for money strings so longer values fit on
+  // narrow iPhone widths without wrapping.
+  const isMoney = typeof value === 'string';
   return (
     <div className={`rounded-xl px-2 py-2 ${highlight ? 'bg-white/20' : 'bg-white/10'}`}>
       <p className="text-[11px] uppercase tracking-wide text-brand-100">{label}</p>
-      <p className="text-lg font-semibold leading-tight">{value}</p>
+      <p className={`${isMoney ? 'text-base' : 'text-lg'} font-semibold leading-tight`}>{value}</p>
     </div>
   );
 }
