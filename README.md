@@ -13,27 +13,40 @@ desktop browser as well.
 
 ## Features
 
+- **Dashboard** — landing page with global analytics: total stocks,
+  quantities, sold revenue, profit, pending supplier payment, inventory
+  cost, revenue potential, and quick-action links.
+- **Profit tracking** — realised profit is computed per item and per batch
+  as `soldQuantity × (sellingPrice − buyingPrice)` and rolled up on the
+  dashboard.
 - **Stock batches** — record every purchase from your supplier with a date.
 - **Multiple calculator items per batch** — add as many calculators as the
   batch contains. Each item carries its own category, quantity, buying price
   and selling price.
-- **Real calculator categories** — `FX-991 EX`, `FX-991 ES`, `FX-991 CW`,
-  `FX-991 ES Original`, `FX-991 MS 2`.
+- **Add more items later** — forgot something? Open the batch and use
+  *+ Add Calculator* on the detail page.
+- **Manage Categories** — the predefined `FX-991 EX / ES / CW / ES Original
+  / MS 2` are seeded automatically; add, rename or delete your own
+  (e.g. `FX-570 ES`, `Citizen CT-500`).  Renames cascade across existing
+  stock records; deletion is blocked while a category is still in use.
 - **Sold / paid quantity tracking** — `+` / `−` controls that can never
   exceed in-stock or sold respectively.
 - **Have-to-pay** — always computed as `sold − paid`, never stored, so totals
   can never drift out of sync.
 - **Financial breakdown per item** — stock cost, revenue potential, sold
-  revenue and pending supplier payment, all computed live.
-- **Batch + all-time summaries** — count and money totals on the list, the
-  detail page and the home header.
+  revenue, profit, and pending supplier payment, all computed live.
+- **Duplicate-category guard** — the same calculator model cannot appear
+  twice in a single batch.
 - **Backup / Restore** — export everything as JSON; re-import to replace the
   current data after a confirmation prompt.
 - **Auto-migration** — old data from previous versions is upgraded on first
   load with no manual steps and no crashes.
+- **Installable PWA** — works fully offline, opens from the home screen,
+  full-screen on iOS / Android.
 - **Delete batch** — with a confirmation modal so it can't be done by accident.
 - **Mobile-first UI** — capped at 430 px wide, centred on larger screens,
-  rounded white cards, soft shadows, large touch targets, sticky FAB.
+  rounded white cards, soft shadows, large touch targets, bottom tab nav,
+  sticky FAB.
 - **Empty + loading states** — friendly placeholders while data hydrates and
   when the list is empty.
 - **TypeScript strict mode** throughout.
@@ -44,39 +57,52 @@ desktop browser as well.
 - [Vite 5](https://vitejs.dev/) for the dev server / build
 - [TailwindCSS 3](https://tailwindcss.com/) for styling
 - [react-router-dom 6](https://reactrouter.com/) (HashRouter) for navigation
+- [vite-plugin-pwa](https://vite-pwa-org.netlify.app/) + Workbox for the
+  service worker and offline precaching
 - Browser **LocalStorage** for persistence
 - ESLint + typescript-eslint for linting
 - `gh-pages` for one-command deployment
 
-No Redux. React Context is intentionally avoided — state lives in a single
-`useStocks` hook at the root of the app.
+No Redux. A single React Context (`AppDataProvider`) owns stocks and
+categories together so the cascade-rename operation can update both
+atomically.
 
 ## Project structure
 
 ```
 src/
   components/
+    BottomNav.tsx           Bottom tab bar (Dashboard / Stocks)
     Button.tsx
     CalculatorTabs.tsx
     ConfirmDialog.tsx
     EmptyState.tsx
     FloatingActionButton.tsx
+    InstallPromptCard.tsx   PWA install button + iOS instructions
     QuantityControl.tsx
     StockCard.tsx
     SummaryCard.tsx
     TopBar.tsx
   hooks/
     useLocalStorage.ts
-    useStocks.ts
   pages/
+    AddCalculatorPage.tsx   Append an item to an existing batch
     CreateStockPage.tsx
+    DashboardPage.tsx
+    ManageCategoriesPage.tsx
     StockDetailPage.tsx
     StockListPage.tsx
+  state/
+    AppDataContext.ts       Context + AppData interface
+    AppDataProvider.tsx     Single source of truth for stocks + categories
+    useAppData.ts           Consumer hook
   types/
+    category.ts
     stock.ts
   utils/
+    categoryStorage.ts      LocalStorage CRUD for categories
     format.ts
-    storage.ts
+    storage.ts              LocalStorage CRUD for stocks + migration
   App.tsx
   main.tsx
   index.css
@@ -85,40 +111,43 @@ src/
 ## Data model
 
 ```ts
-const CALCULATOR_CATEGORIES = [
-  'FX-991 EX',
-  'FX-991 ES',
-  'FX-991 CW',
-  'FX-991 ES Original',
-  'FX-991 MS 2',
-] as const;
-
 interface Calculator {
   id: string;
-  category: string;       // one of CALCULATOR_CATEGORIES for new entries
-  quantity: number;       // bought from supplier
-  soldQuantity: number;   // 0 .. quantity
-  paidQuantity: number;   // 0 .. soldQuantity
-  buyingPrice: number;    // LKR per unit, > 0
-  sellingPrice: number;   // LKR per unit, > 0
+  category: string;        // matches one of the entries in the Category list
+  quantity: number;        // bought from supplier
+  soldQuantity: number;    // 0 .. quantity
+  paidQuantity: number;    // 0 .. soldQuantity
+  buyingPrice: number;     // LKR per unit, > 0
+  sellingPrice: number;    // LKR per unit, > 0
 }
 
 interface StockBatch {
   id: string;
-  date: string;           // ISO YYYY-MM-DD
-  createdAt: number;      // epoch millis (used for newest-first sort)
-  calculators: Calculator[]; // one or more items
+  date: string;            // ISO YYYY-MM-DD
+  createdAt: number;       // epoch millis (used for newest-first sort)
+  calculators: Calculator[];  // one or more items, unique category per batch
 }
 
-// Derived, never stored:
+interface Category {
+  id: string;
+  name: string;            // shown in dropdowns and tabs
+}
+
+// Derived (never stored):
 haveToPay              = soldQuantity - paidQuantity;
 stockCost              = quantity     * buyingPrice;
 revenuePotential       = quantity     * sellingPrice;
 soldRevenue            = soldQuantity * sellingPrice;
+profit                 = soldQuantity * (sellingPrice - buyingPrice);
 pendingSupplierPayment = haveToPay    * buyingPrice;
 ```
 
-LocalStorage key: `cst.stocks.v1` — value is a JSON array of `StockBatch`.
+LocalStorage keys:
+
+| Key                  | Value                                          |
+|----------------------|------------------------------------------------|
+| `cst.stocks.v1`      | JSON array of `StockBatch`                     |
+| `cst.categories.v1`  | JSON array of `Category` (seeded on first run) |
 
 ### Migration of legacy data
 
@@ -133,6 +162,15 @@ which:
 Old backup JSON files import successfully too — the same migrator runs on the
 parsed payload before it replaces the live data. Items with `Rs 0` prices are
 simply legacy records that pre-date the financial tracking feature.
+
+### Category cascade-rename
+
+`Calculator.category` is stored as the human-readable name string (not a
+foreign key) so backups stay readable and round-trip without a separate
+join. When the user renames a category in **Manage Categories**, the
+provider also rewrites every calculator that referenced the old name so
+the dropdown and the stock records never go out of sync. Deletion is
+blocked while a category is still referenced anywhere.
 
 ## Installation
 
@@ -180,6 +218,40 @@ PowerShell):
 ```powershell
 net stop winnat
 net start winnat
+```
+
+## Installable PWA
+
+The app ships as a Progressive Web App with offline support:
+
+- **Manifest** declares `display: standalone`, `orientation: portrait`,
+  brand theme color and a full icon set (64, 192, 512, maskable, plus an
+  Apple touch icon).
+- **Service worker** (Workbox via `vite-plugin-pwa`) precaches every
+  static asset, including HTML, JS, CSS, SVG and PNG icons (~246 KB).
+- **`registerType: 'autoUpdate'`** so a new build silently replaces the
+  cached version after a reload, no manual cache-busting needed.
+- An **Install App** card on the Dashboard listens for Chrome / Android's
+  `beforeinstallprompt` event and surfaces a Tap-to-Install button.
+  On iPhone (which never fires that event) the same card shows the
+  *Share → Add to Home Screen* steps inline.
+
+After installation:
+
+- Opens from the home screen icon in full-screen mode (no Safari chrome).
+- Works with no network: every page, the create flow, the dashboard,
+  category management and backup export still function.
+
+If you want to iterate on the SW locally, flip `devOptions.enabled` to
+`true` in `vite.config.ts`.
+
+### Regenerating the PWA icons
+
+The icons under `public/` are generated from `public/favicon.svg`. If you
+change the SVG, regenerate the icons with:
+
+```bash
+npm run generate-pwa-assets
 ```
 
 ## Deploying to GitHub Pages
