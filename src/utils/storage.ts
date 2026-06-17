@@ -10,6 +10,7 @@ import type { BackupPayload, Calculator, StockBatch } from '@/types/stock';
 import {
   haveToPay,
   pendingSupplierPayment,
+  profit,
   revenuePotential,
   soldRevenue,
   stockCost,
@@ -173,6 +174,7 @@ export function summarizeBatch(batch: StockBatch) {
       totalCost: acc.totalCost + stockCost(calc),
       totalRevenuePotential: acc.totalRevenuePotential + revenuePotential(calc),
       totalSoldRevenue: acc.totalSoldRevenue + soldRevenue(calc),
+      totalProfit: acc.totalProfit + profit(calc),
       totalPendingPayment: acc.totalPendingPayment + pendingSupplierPayment(calc),
     }),
     {
@@ -183,9 +185,93 @@ export function summarizeBatch(batch: StockBatch) {
       totalCost: 0,
       totalRevenuePotential: 0,
       totalSoldRevenue: 0,
+      totalProfit: 0,
       totalPendingPayment: 0,
     },
   );
+}
+
+/**
+ * Aggregate every per-batch summary into a single global one used by the
+ * Dashboard page.
+ */
+export function summarizeAllStocks(stocks: StockBatch[]) {
+  const base = {
+    totalStocks: stocks.length,
+    quantity: 0,
+    sold: 0,
+    paid: 0,
+    pendingQty: 0,
+    totalCost: 0,
+    totalRevenuePotential: 0,
+    totalSoldRevenue: 0,
+    totalProfit: 0,
+    totalPendingPayment: 0,
+  };
+  for (const batch of stocks) {
+    const s = summarizeBatch(batch);
+    base.quantity += s.quantity;
+    base.sold += s.sold;
+    base.paid += s.paid;
+    base.pendingQty += s.pendingQty;
+    base.totalCost += s.totalCost;
+    base.totalRevenuePotential += s.totalRevenuePotential;
+    base.totalSoldRevenue += s.totalSoldRevenue;
+    base.totalProfit += s.totalProfit;
+    base.totalPendingPayment += s.totalPendingPayment;
+  }
+  return base;
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Add-to-batch and category cascade                                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Append a new calculator item to an existing batch.  The same category
+ * cannot appear twice in a single batch.
+ */
+export function addCalculatorToBatch(
+  stockId: string,
+  item: NewCalculatorInput,
+):
+  | { ok: true; stocks: StockBatch[] }
+  | { ok: false; reason: 'duplicate' | 'missing' } {
+  const stocks = getStocks();
+  const batch = stocks.find((s) => s.id === stockId);
+  if (!batch) return { ok: false, reason: 'missing' };
+
+  const normalized = item.category.trim().toLowerCase();
+  if (batch.calculators.some((c) => c.category.trim().toLowerCase() === normalized)) {
+    return { ok: false, reason: 'duplicate' };
+  }
+
+  const [created] = buildCalculators([item]);
+  if (!created) return { ok: false, reason: 'missing' };
+  const next = stocks.map((s) =>
+    s.id === stockId ? { ...s, calculators: [...s.calculators, created] } : s,
+  );
+  saveStocks(next);
+  return { ok: true, stocks: next };
+}
+
+/**
+ * Replace every occurrence of `oldName` in calculator.category with `newName`
+ * across all stock batches.  Used when the user renames a category in the
+ * Manage Categories page.
+ */
+export function renameCalculatorCategory(oldName: string, newName: string): StockBatch[] {
+  if (oldName.trim().toLowerCase() === newName.trim().toLowerCase()) return getStocks();
+  const stocks = getStocks().map((batch) => ({
+    ...batch,
+    calculators: batch.calculators.map((calc) =>
+      calc.category.trim().toLowerCase() === oldName.trim().toLowerCase()
+        ? { ...calc, category: newName }
+        : calc,
+    ),
+  }));
+  saveStocks(stocks);
+  return stocks;
 }
 
 /* -------------------------------------------------------------------------- */

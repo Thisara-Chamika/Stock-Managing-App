@@ -93,3 +93,13 @@ export function pendingSupplierPayment(
 ): number {
   return haveToPay(c) * c.buyingPrice;
 }
+
+/**
+ * Realised profit on already-sold units.  Negative if selling price is below
+ * buying price, but the create form prevents that scenario.
+ */
+export function profit(
+  c: Pick<Calculator, 'soldQuantity' | 'sellingPrice' | 'buyingPrice'>,
+): number {
+  return c.soldQuantity * (c.sellingPrice - c.buyingPrice);
+}
