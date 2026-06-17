@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import { Button } from '@/components/Button';
 import { CalculatorTabs } from '@/components/CalculatorTabs';
@@ -7,10 +7,11 @@ import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { QuantityControl } from '@/components/QuantityControl';
 import { SummaryCard } from '@/components/SummaryCard';
 import { TopBar } from '@/components/TopBar';
-import type { Calculator, StockBatch } from '@/types/stock';
+import { useAppData } from '@/state/useAppData';
 import {
   haveToPay,
   pendingSupplierPayment,
+  profit,
   revenuePotential,
   soldRevenue,
   stockCost,
@@ -18,23 +19,15 @@ import {
 import { formatDisplayDate, formatMoney } from '@/utils/format';
 import { summarizeBatch } from '@/utils/storage';
 
-interface StockDetailPageProps {
-  stocks: StockBatch[];
-  onUpdateCalculator: (
-    stockId: string,
-    calculatorId: string,
-    patch: Partial<Pick<Calculator, 'soldQuantity' | 'paidQuantity'>>,
-  ) => void;
-  onDelete: (stockId: string) => void;
-}
-
 /**
  * Detail page for a single stock batch.  Lets the user adjust sold and paid
- * quantities for each calculator and view all derived financial metrics.
+ * quantities, view all derived financial metrics, append more calculators,
+ * and delete the batch.
  */
-export function StockDetailPage({ stocks, onUpdateCalculator, onDelete }: StockDetailPageProps): JSX.Element {
+export function StockDetailPage(): JSX.Element {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
+  const { stocks, updateCalculator, deleteStock } = useAppData();
 
   const batch = useMemo(() => stocks.find((s) => s.id === id), [stocks, id]);
 
@@ -43,8 +36,8 @@ export function StockDetailPage({ stocks, onUpdateCalculator, onDelete }: StockD
 
   if (!batch) {
     return (
-      <div className="min-h-screen pb-10">
-        <TopBar title="Stock not found" onBack={() => navigate('/')} />
+      <div className="min-h-screen pb-24">
+        <TopBar title="Stock not found" onBack={() => navigate('/stocks')} />
         <p className="rounded-2xl bg-white p-6 text-center text-slate-600 shadow-card">
           We couldn&apos;t find this stock batch. It may have been deleted.
         </p>
@@ -57,28 +50,15 @@ export function StockDetailPage({ stocks, onUpdateCalculator, onDelete }: StockD
   const totals = summarizeBatch(batch);
 
   const handleDelete = (): void => {
-    onDelete(batch.id);
-    navigate('/');
+    deleteStock(batch.id);
+    navigate('/stocks');
   };
 
-  if (!activeCalc) {
-    return (
-      <div className="min-h-screen pb-10">
-        <TopBar title="Empty batch" onBack={() => navigate('/')} />
-        <p className="rounded-2xl bg-white p-6 text-center text-slate-600 shadow-card">
-          This batch has no calculators recorded.
-        </p>
-      </div>
-    );
-  }
-
-  const pending = haveToPay(activeCalc);
-
   return (
-    <div className="min-h-screen pb-10">
+    <div className="min-h-screen pb-24">
       <TopBar
         title={formatDisplayDate(batch.date)}
-        onBack={() => navigate('/')}
+        onBack={() => navigate('/stocks')}
         trailing={
           <button
             type="button"
@@ -106,81 +86,43 @@ export function StockDetailPage({ stocks, onUpdateCalculator, onDelete }: StockD
         }
       />
 
-      <div className="mb-4">
-        <CalculatorTabs
-          calculators={batch.calculators}
-          activeId={activeCalc.id}
-          onSelect={(nextId) => setActiveCalcId(nextId)}
+      {batch.calculators.length > 0 ? (
+        <div className="mb-4">
+          <CalculatorTabs
+            calculators={batch.calculators}
+            activeId={activeCalc?.id ?? ''}
+            onSelect={(nextId) => setActiveCalcId(nextId)}
+          />
+        </div>
+      ) : null}
+
+      {activeCalc ? (
+        <ActiveCalculatorSection
+          stockId={batch.id}
+          activeCalc={activeCalc}
+          onUpdate={updateCalculator}
         />
+      ) : (
+        <p className="rounded-2xl bg-white p-6 text-center text-slate-600 shadow-card">
+          This batch has no calculators recorded yet.
+        </p>
+      )}
+
+      <div className="mt-5 flex flex-col gap-2 rounded-2xl bg-white p-3 shadow-card">
+        <Link
+          to={`/stock/${batch.id}/add`}
+          className="flex items-center justify-center gap-2 rounded-xl bg-brand-50 px-3 py-3 text-sm font-semibold text-brand-700 hover:bg-brand-100 active:bg-brand-100"
+        >
+          <span className="text-base font-bold">+</span>
+          Add Calculator
+        </Link>
+        <Link
+          to="/categories"
+          className="flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 active:bg-slate-100"
+        >
+          Manage Categories
+        </Link>
       </div>
-
-      <section className="space-y-3">
-        <div className="rounded-2xl bg-white p-4 shadow-card">
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Calculator type</p>
-          <p className="mt-1 text-xl font-semibold text-slate-900">
-            {activeCalc.category || 'Untitled item'}
-          </p>
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            <Stat label="Quantity" value={String(activeCalc.quantity)} tone="brand" />
-            <Stat label="Available" value={String(activeCalc.quantity - activeCalc.soldQuantity)} tone="muted" />
-            <Stat label="Buying Price" value={formatMoney(activeCalc.buyingPrice)} tone="muted" />
-            <Stat label="Selling Price" value={formatMoney(activeCalc.sellingPrice)} tone="muted" />
-          </div>
-        </div>
-
-        <QuantityControl
-          label="Sold Quantity"
-          value={activeCalc.soldQuantity}
-          max={activeCalc.quantity}
-          onChange={(next) => onUpdateCalculator(batch.id, activeCalc.id, { soldQuantity: next })}
-          hint={`Cannot exceed in-stock quantity (${activeCalc.quantity}).`}
-          tone="success"
-        />
-
-        <QuantityControl
-          label="Paid Quantity"
-          value={activeCalc.paidQuantity}
-          max={activeCalc.soldQuantity}
-          onChange={(next) => onUpdateCalculator(batch.id, activeCalc.id, { paidQuantity: next })}
-          hint={`Cannot exceed sold quantity (${activeCalc.soldQuantity}).`}
-        />
-
-        <div className={`rounded-2xl p-4 shadow-card ${pending > 0 ? 'bg-amber-50' : 'bg-emerald-50'}`}>
-          <p
-            className={`text-xs font-medium uppercase tracking-wide ${
-              pending > 0 ? 'text-amber-700' : 'text-emerald-700'
-            }`}
-          >
-            Have to pay
-          </p>
-          <div className="mt-1 flex items-baseline justify-between">
-            <p className={`text-3xl font-bold ${pending > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>
-              {pending}
-            </p>
-            <p className={`text-xs ${pending > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>
-              {pending > 0
-                ? `${formatMoney(pendingSupplierPayment(activeCalc))} owed to supplier`
-                : 'all settled'}
-            </p>
-          </div>
-        </div>
-
-        <div className="rounded-2xl bg-white p-4 shadow-card">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Financial breakdown
-          </p>
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            <MoneyStat label="Stock Cost" value={stockCost(activeCalc)} />
-            <MoneyStat label="Revenue Potential" value={revenuePotential(activeCalc)} />
-            <MoneyStat label="Sold Revenue" value={soldRevenue(activeCalc)} tone="success" />
-            <MoneyStat
-              label="Pending Supplier Payment"
-              value={pendingSupplierPayment(activeCalc)}
-              tone={pending > 0 ? 'warning' : 'default'}
-            />
-          </div>
-        </div>
-      </section>
 
       <div className="mt-5 space-y-3">
         <SummaryCard
@@ -198,6 +140,7 @@ export function StockDetailPage({ stocks, onUpdateCalculator, onDelete }: StockD
             { label: 'Total Inventory Cost', value: totals.totalCost, format: 'money' },
             { label: 'Total Revenue Potential', value: totals.totalRevenuePotential, format: 'money' },
             { label: 'Total Sold Revenue', value: totals.totalSoldRevenue, format: 'money', tone: 'success' },
+            { label: 'Total Profit', value: totals.totalProfit, format: 'money', tone: 'success' },
             {
               label: 'Total Pending Supplier Payment',
               value: totals.totalPendingPayment,
@@ -225,6 +168,91 @@ export function StockDetailPage({ stocks, onUpdateCalculator, onDelete }: StockD
         onCancel={() => setConfirmDelete(false)}
       />
     </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Active calculator section                                                  */
+/* -------------------------------------------------------------------------- */
+
+interface ActiveCalculatorSectionProps {
+  stockId: string;
+  activeCalc: import('@/types/stock').Calculator;
+  onUpdate: ReturnType<typeof useAppData>['updateCalculator'];
+}
+
+function ActiveCalculatorSection({ stockId, activeCalc, onUpdate }: ActiveCalculatorSectionProps): JSX.Element {
+  const pending = haveToPay(activeCalc);
+  const earnedProfit = profit(activeCalc);
+  return (
+    <section className="space-y-3">
+      <div className="rounded-2xl bg-white p-4 shadow-card">
+        <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Calculator type</p>
+        <p className="mt-1 text-xl font-semibold text-slate-900">
+          {activeCalc.category || 'Untitled item'}
+        </p>
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <Stat label="Quantity" value={String(activeCalc.quantity)} tone="brand" />
+          <Stat label="Available" value={String(activeCalc.quantity - activeCalc.soldQuantity)} tone="muted" />
+          <Stat label="Buying Price" value={formatMoney(activeCalc.buyingPrice)} tone="muted" />
+          <Stat label="Selling Price" value={formatMoney(activeCalc.sellingPrice)} tone="muted" />
+        </div>
+      </div>
+
+      <QuantityControl
+        label="Sold Quantity"
+        value={activeCalc.soldQuantity}
+        max={activeCalc.quantity}
+        onChange={(next) => onUpdate(stockId, activeCalc.id, { soldQuantity: next })}
+        hint={`Cannot exceed in-stock quantity (${activeCalc.quantity}).`}
+        tone="success"
+      />
+
+      <QuantityControl
+        label="Paid Quantity"
+        value={activeCalc.paidQuantity}
+        max={activeCalc.soldQuantity}
+        onChange={(next) => onUpdate(stockId, activeCalc.id, { paidQuantity: next })}
+        hint={`Cannot exceed sold quantity (${activeCalc.soldQuantity}).`}
+      />
+
+      <div className={`rounded-2xl p-4 shadow-card ${pending > 0 ? 'bg-amber-50' : 'bg-emerald-50'}`}>
+        <p
+          className={`text-xs font-medium uppercase tracking-wide ${
+            pending > 0 ? 'text-amber-700' : 'text-emerald-700'
+          }`}
+        >
+          Have to pay
+        </p>
+        <div className="mt-1 flex items-baseline justify-between">
+          <p className={`text-3xl font-bold ${pending > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>
+            {pending}
+          </p>
+          <p className={`text-xs ${pending > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>
+            {pending > 0
+              ? `${formatMoney(pendingSupplierPayment(activeCalc))} owed to supplier`
+              : 'all settled'}
+          </p>
+        </div>
+      </div>
+
+      <div className="rounded-2xl bg-white p-4 shadow-card">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          Financial breakdown
+        </p>
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <MoneyStat label="Stock Cost" value={stockCost(activeCalc)} />
+          <MoneyStat label="Revenue Potential" value={revenuePotential(activeCalc)} />
+          <MoneyStat label="Sold Revenue" value={soldRevenue(activeCalc)} tone="success" />
+          <MoneyStat label="Profit" value={earnedProfit} tone={earnedProfit >= 0 ? 'success' : 'warning'} />
+          <MoneyStat
+            label="Pending Supplier Payment"
+            value={pendingSupplierPayment(activeCalc)}
+            tone={pending > 0 ? 'warning' : 'default'}
+          />
+        </div>
+      </div>
+    </section>
   );
 }
 

@@ -6,40 +6,24 @@ import { EmptyState } from '@/components/EmptyState';
 import { FloatingActionButton } from '@/components/FloatingActionButton';
 import { StockCard } from '@/components/StockCard';
 import { TopBar } from '@/components/TopBar';
-import type { StockBatch } from '@/types/stock';
+import { useAppData } from '@/state/useAppData';
 import { fileTimestamp, formatMoney } from '@/utils/format';
-import { buildBackup, summarizeBatch } from '@/utils/storage';
-
-interface StockListPageProps {
-  stocks: StockBatch[];
-  isLoading: boolean;
-  onImport: (payload: unknown) => void;
-}
+import { buildBackup, summarizeAllStocks } from '@/utils/storage';
 
 /**
- * Home page – lists every stock batch (newest first) along with aggregate
- * stats and the export / import backup actions.
+ * Stocks page – lists every batch (newest first), surfaces a sold-revenue
+ * and pending-payment summary, and hosts the Export / Import backup
+ * actions.
  */
-export function StockListPage({ stocks, isLoading, onImport }: StockListPageProps): JSX.Element {
+export function StockListPage(): JSX.Element {
   const navigate = useNavigate();
+  const { stocks, isLoading, importBackup } = useAppData();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [importPayload, setImportPayload] = useState<unknown | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
 
-  const grandTotals = stocks.reduce(
-    (acc, batch) => {
-      const t = summarizeBatch(batch);
-      return {
-        quantity: acc.quantity + t.quantity,
-        sold: acc.sold + t.sold,
-        pendingQty: acc.pendingQty + t.pendingQty,
-        totalSoldRevenue: acc.totalSoldRevenue + t.totalSoldRevenue,
-        totalPendingPayment: acc.totalPendingPayment + t.totalPendingPayment,
-      };
-    },
-    { quantity: 0, sold: 0, pendingQty: 0, totalSoldRevenue: 0, totalPendingPayment: 0 },
-  );
+  const grandTotals = summarizeAllStocks(stocks);
 
   const handleExport = (): void => {
     const payload = buildBackup(stocks);
@@ -61,7 +45,6 @@ export function StockListPage({ stocks, isLoading, onImport }: StockListPageProp
 
   const handleFileSelected = async (event: React.ChangeEvent<HTMLInputElement>): Promise<void> => {
     const file = event.target.files?.[0];
-    // Reset the input so selecting the same file twice still triggers change.
     event.target.value = '';
     if (!file) return;
     try {
@@ -77,7 +60,7 @@ export function StockListPage({ stocks, isLoading, onImport }: StockListPageProp
   const confirmImport = (): void => {
     if (importPayload === null) return;
     try {
-      onImport(importPayload);
+      importBackup(importPayload);
       setImportPayload(null);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to import backup.';
@@ -87,7 +70,7 @@ export function StockListPage({ stocks, isLoading, onImport }: StockListPageProp
   };
 
   return (
-    <div className="relative min-h-screen pb-28">
+    <div className="relative min-h-screen pb-32">
       <TopBar
         title="Stock Tracker"
         trailing={
@@ -157,6 +140,29 @@ export function StockListPage({ stocks, isLoading, onImport }: StockListPageProp
         </section>
       ) : null}
 
+      {/* Backup-loss warning - always visible so the user remembers. */}
+      <div className="mb-4 flex items-start gap-2 rounded-2xl bg-amber-50 px-3 py-2.5 text-xs text-amber-800 ring-1 ring-amber-100">
+        <svg
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+          className="mt-0.5 shrink-0"
+        >
+          <path d="M12 9v4M12 17h.01" />
+          <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+        </svg>
+        <p>
+          If your browser data is removed, your stock data may be lost. Regularly export backups
+          using the icon above.
+        </p>
+      </div>
+
       {isLoading ? (
         <SkeletonList />
       ) : stocks.length === 0 ? (
@@ -205,8 +211,6 @@ function HeaderStat({
   value: number | string;
   highlight?: boolean;
 }): JSX.Element {
-  // Use a slightly smaller font for money strings so longer values fit on
-  // narrow iPhone widths without wrapping.
   const isMoney = typeof value === 'string';
   return (
     <div className={`rounded-xl px-2 py-2 ${highlight ? 'bg-white/20' : 'bg-white/10'}`}>
@@ -244,7 +248,7 @@ function SkeletonList(): JSX.Element {
   return (
     <ul className="space-y-3" aria-busy="true" aria-label="Loading stock batches">
       {[1, 2, 3].map((i) => (
-        <li key={i} className="h-28 animate-pulse rounded-2xl bg-white shadow-card" />
+        <li key={i} className="h-32 animate-pulse rounded-2xl bg-white shadow-card" />
       ))}
     </ul>
   );

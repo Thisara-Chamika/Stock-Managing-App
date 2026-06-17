@@ -1,54 +1,76 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useMemo, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 
 import { Button } from '@/components/Button';
+import { EmptyState } from '@/components/EmptyState';
 import { TopBar } from '@/components/TopBar';
-import { CALCULATOR_CATEGORIES, type CalculatorCategory } from '@/types/stock';
+import { useAppData } from '@/state/useAppData';
 import { todayIsoDate } from '@/utils/format';
-import type { NewCalculatorInput } from '@/utils/storage';
-
-interface CreateStockPageProps {
-  onCreate: (date: string, items: NewCalculatorInput[]) => void;
-}
 
 /**
  * Form draft for a single calculator item being entered by the user.
  *
- * Numbers are kept as strings so the inputs stay controlled and let the user
- * blank a field temporarily without it snapping to `0`.  They're parsed once
+ * Numbers stay as strings so the inputs remain controlled and let the user
+ * temporarily blank a field without it snapping to `0`.  They're parsed once
  * at submit time.
  */
 interface ItemDraft {
   draftId: string;
-  category: CalculatorCategory;
+  category: string;
   quantity: string;
   buyingPrice: string;
   sellingPrice: string;
 }
 
-function blankItem(): ItemDraft {
+function blankItem(defaultCategory: string): ItemDraft {
   return {
     draftId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    category: CALCULATOR_CATEGORIES[0],
+    category: defaultCategory,
     quantity: '',
     buyingPrice: '',
     sellingPrice: '',
   };
 }
 
-/** Controlled form for recording a new supplier purchase. */
-export function CreateStockPage({ onCreate }: CreateStockPageProps): JSX.Element {
+/** Multi-item form for recording a new supplier purchase. */
+export function CreateStockPage(): JSX.Element {
   const navigate = useNavigate();
+  const { categories, createStock } = useAppData();
+
+  const firstCategoryName = categories[0]?.name ?? '';
+
   const [date, setDate] = useState<string>(todayIsoDate());
-  const [items, setItems] = useState<ItemDraft[]>(() => [blankItem()]);
+  const [items, setItems] = useState<ItemDraft[]>(() => [blankItem(firstCategoryName)]);
   const [error, setError] = useState<string | null>(null);
+
+  const categoryNames = useMemo(() => new Set(categories.map((c) => c.name)), [categories]);
+
+  if (categories.length === 0) {
+    return (
+      <div className="min-h-screen pb-24">
+        <TopBar title="New Stock Batch" onBack={() => navigate(-1)} />
+        <EmptyState
+          title="No categories available"
+          description="Add at least one calculator category before creating a stock batch."
+          action={
+            <Link
+              to="/categories"
+              className="inline-flex items-center justify-center rounded-xl bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700"
+            >
+              Manage Categories
+            </Link>
+          }
+        />
+      </div>
+    );
+  }
 
   const updateItem = (draftId: string, patch: Partial<ItemDraft>): void => {
     setItems((prev) => prev.map((it) => (it.draftId === draftId ? { ...it, ...patch } : it)));
   };
 
   const addItem = (): void => {
-    setItems((prev) => [...prev, blankItem()]);
+    setItems((prev) => [...prev, blankItem(firstCategoryName)]);
   };
 
   const removeItem = (draftId: string): void => {
@@ -64,26 +86,30 @@ export function CreateStockPage({ onCreate }: CreateStockPageProps): JSX.Element
       return;
     }
 
-    const parsed: NewCalculatorInput[] = [];
+    const parsed: { category: string; quantity: number; buyingPrice: number; sellingPrice: number }[] = [];
+    const seenCategories = new Set<string>();
+
     for (let i = 0; i < items.length; i += 1) {
       const draft = items[i];
       if (!draft) continue;
       const label = `Item ${i + 1}`;
 
-      if (!CALCULATOR_CATEGORIES.includes(draft.category)) {
-        setError(`${label}: please pick a calculator category.`);
+      if (!categoryNames.has(draft.category)) {
+        setError(`${label}: please pick a valid calculator category.`);
         return;
       }
+      const dedupKey = draft.category.trim().toLowerCase();
+      if (seenCategories.has(dedupKey)) {
+        setError(`${label}: this calculator category already exists in this stock.`);
+        return;
+      }
+      seenCategories.add(dedupKey);
 
       const quantity = parseIntOrNaN(draft.quantity);
       const buyingPrice = parseIntOrNaN(draft.buyingPrice);
       const sellingPrice = parseIntOrNaN(draft.sellingPrice);
 
-      if (!Number.isFinite(quantity) || quantity < 0) {
-        setError(`${label}: quantity must be a non-negative number.`);
-        return;
-      }
-      if (quantity < 1) {
+      if (!Number.isFinite(quantity) || quantity < 1) {
         setError(`${label}: quantity must be at least 1.`);
         return;
       }
@@ -104,12 +130,12 @@ export function CreateStockPage({ onCreate }: CreateStockPageProps): JSX.Element
       return;
     }
 
-    onCreate(date, parsed);
-    navigate('/');
+    createStock(date, parsed);
+    navigate('/stocks');
   };
 
   return (
-    <div className="min-h-screen pb-10">
+    <div className="min-h-screen pb-24">
       <TopBar title="New Stock Batch" onBack={() => navigate(-1)} />
 
       <form className="space-y-4" onSubmit={handleSubmit} noValidate>
@@ -135,6 +161,7 @@ export function CreateStockPage({ onCreate }: CreateStockPageProps): JSX.Element
               index={index}
               item={item}
               canRemove={items.length > 1}
+              categories={categories.map((c) => c.name)}
               onChange={(patch) => updateItem(item.draftId, patch)}
               onRemove={() => removeItem(item.draftId)}
             />
@@ -172,11 +199,12 @@ interface ItemCardProps {
   index: number;
   item: ItemDraft;
   canRemove: boolean;
+  categories: string[];
   onChange: (patch: Partial<ItemDraft>) => void;
   onRemove: () => void;
 }
 
-function ItemCard({ index, item, canRemove, onChange, onRemove }: ItemCardProps): JSX.Element {
+function ItemCard({ index, item, canRemove, categories, onChange, onRemove }: ItemCardProps): JSX.Element {
   return (
     <fieldset className="rounded-2xl bg-white p-4 shadow-card">
       <div className="flex items-center justify-between">
@@ -209,16 +237,24 @@ function ItemCard({ index, item, canRemove, onChange, onRemove }: ItemCardProps)
 
       <div className="mt-3 space-y-3">
         <div>
-          <label className="block text-sm font-medium text-slate-700" htmlFor={`cat-${item.draftId}`}>
-            Calculator Type
-          </label>
+          <div className="flex items-center justify-between">
+            <label className="block text-sm font-medium text-slate-700" htmlFor={`cat-${item.draftId}`}>
+              Calculator Type
+            </label>
+            <Link
+              to="/categories"
+              className="text-xs font-semibold text-brand-700 underline-offset-2 hover:underline"
+            >
+              Manage Categories
+            </Link>
+          </div>
           <select
             id={`cat-${item.draftId}`}
             value={item.category}
-            onChange={(event) => onChange({ category: event.target.value as CalculatorCategory })}
+            onChange={(event) => onChange({ category: event.target.value })}
             className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-base text-slate-900 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100"
           >
-            {CALCULATOR_CATEGORIES.map((option) => (
+            {categories.map((option) => (
               <option key={option} value={option}>
                 {option}
               </option>

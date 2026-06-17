@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { VitePWA } from 'vite-plugin-pwa';
 import path from 'node:path';
 
 // https://vitejs.dev/config/
@@ -11,26 +12,74 @@ export default defineConfig(({ mode }) => {
 
   return {
     base,
-    plugins: [react()],
+    plugins: [
+      react(),
+      VitePWA({
+        // Re-register the service worker whenever a new version of the app
+        // ships, so users get fresh code on next reload without having to
+        // clear their browser cache.
+        registerType: 'autoUpdate',
+        // Inject `<script>` to register the SW from `index.html`.
+        injectRegister: 'auto',
+        includeAssets: [
+          'favicon.svg',
+          'favicon.ico',
+          'apple-touch-icon-180x180.png',
+          '404.html',
+        ],
+        manifest: {
+          name: 'Calculator Stock Tracker',
+          short_name: 'Stock Tracker',
+          description:
+            'Track calculator stock batches, sold quantities, supplier payments, and profit – fully offline.',
+          start_url: '.',
+          scope: '.',
+          display: 'standalone',
+          orientation: 'portrait',
+          background_color: '#f1f5f9',
+          theme_color: '#2563eb',
+          icons: [
+            { src: 'pwa-64x64.png', sizes: '64x64', type: 'image/png' },
+            { src: 'pwa-192x192.png', sizes: '192x192', type: 'image/png' },
+            { src: 'pwa-512x512.png', sizes: '512x512', type: 'image/png' },
+            {
+              src: 'maskable-icon-512x512.png',
+              sizes: '512x512',
+              type: 'image/png',
+              purpose: 'maskable',
+            },
+          ],
+        },
+        workbox: {
+          // Precache every asset the app actually serves (HTML, JS, CSS,
+          // SVG, PNG, JSON).  Since the app is 100% offline-first with no
+          // network calls of its own, this is enough to make the entire
+          // experience available offline.
+          globPatterns: ['**/*.{js,css,html,svg,png,ico,webp,woff2,json}'],
+          // SPA fallback so HashRouter routes always resolve to index.html
+          // when the SW serves them while offline.
+          navigateFallback: 'index.html',
+          // Skip /404.html in the navigate fallback so dedicated 404
+          // requests still get the right page.
+          navigateFallbackDenylist: [/^\/404\.html$/],
+          cleanupOutdatedCaches: true,
+        },
+        devOptions: {
+          // Allow testing the SW in dev with `npm run dev` -- handy when
+          // iterating on the offline flow.
+          enabled: false,
+        },
+      }),
+    ],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, './src'),
       },
     },
     server: {
-      // Bind to IPv4 loopback only.  On Windows, Vite's default attempt to
-      // also listen on ::1 (IPv6 loopback) commonly fails with
-      // `EACCES: permission denied` when Hyper-V / WSL has reserved the
-      // port range containing 5173.
       host: '127.0.0.1',
-      // 5300 sits outside the typical Windows / Hyper-V excluded port ranges
-      // (e.g. 5041-5240 on many Windows machines).  If it happens to be in
-      // use, strictPort=false lets Vite pick the next free port automatically.
-      // Verify reserved ranges with:
-      //   netsh interface ipv4 show excludedportrange protocol=tcp
       port: 5300,
       strictPort: false,
-      // Auto-open the browser when the server is ready.
       open: true,
     },
     preview: {
