@@ -56,12 +56,29 @@ export interface StockBatch {
   calculators: Calculator[];
 }
 
-/** Shape persisted to LocalStorage and to backup JSON files. */
+/**
+ * Backup JSON payload, current format (v2).
+ *
+ * v2 adds the user's category list so renames and additions survive a
+ * round-trip through an export/import.  v1 payloads (stocks only) are
+ * still accepted by the importer for backward compatibility.
+ */
 export interface BackupPayload {
+  version: 2;
+  exportedAt: string;
+  stocks: StockBatch[];
+  categories: import('./category').Category[];
+}
+
+/** Legacy backup payload shape (stocks-only) still accepted on import. */
+export interface BackupPayloadV1 {
   version: 1;
   exportedAt: string;
   stocks: StockBatch[];
 }
+
+/** Union of every backup format the importer will read. */
+export type AnyBackupPayload = BackupPayload | BackupPayloadV1;
 
 /* -------------------------------------------------------------------------- */
 /*  Derived (computed) values                                                  */

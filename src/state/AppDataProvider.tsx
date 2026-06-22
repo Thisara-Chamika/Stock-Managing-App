@@ -9,13 +9,13 @@ import {
   getOrSeedCategories,
   renameCategoryInStorage,
 } from '@/utils/categoryStorage';
+import { importJsonBackup } from '@/utils/importJson';
 import {
   addCalculatorToBatch,
   createStock as createStockInStorage,
   deleteStock as deleteStockInStorage,
   getStocks,
   renameCalculatorCategory,
-  restoreBackup,
   saveStocks,
   updateCalculator as updateCalculatorInStorage,
   type NewCalculatorInput,
@@ -89,8 +89,15 @@ export function AppDataProvider({ children }: { children: ReactNode }): JSX.Elem
   );
 
   const importBackup = useCallback((payload: unknown): void => {
-    const next = restoreBackup(payload);
-    setStocks(next);
+    // Delegates to the v2-aware importer.  Throws BackupValidationError on
+    // invalid payloads; callers translate that into a UI message.
+    const result = importJsonBackup(payload);
+    setStocks(result.stocks);
+    // v1 backups don't include a category list - keep whatever the user
+    // currently has so a legacy restore never wipes their categories.
+    if (result.version === 2) {
+      setCategories(result.categories);
+    }
   }, []);
 
   /* -------------------- Category mutators ----------------- */

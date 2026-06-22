@@ -130,11 +130,20 @@ export function deleteStock(stockId: string): StockBatch[] {
 /*  Backup / restore                                                           */
 /* -------------------------------------------------------------------------- */
 
-export function buildBackup(stocks: StockBatch[]): BackupPayload {
+/**
+ * Build a v2 backup payload containing both the stock batches and the
+ * category list.  Callers can omit `categories` for a stocks-only export
+ * (defaults to an empty list which the importer treats as "no change").
+ */
+export function buildBackup(
+  stocks: StockBatch[],
+  categories: BackupPayload['categories'] = [],
+): BackupPayload {
   return {
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
     stocks,
+    categories,
   };
 }
 
@@ -142,6 +151,10 @@ export function buildBackup(stocks: StockBatch[]): BackupPayload {
  * Restore stocks from a parsed JSON payload.  Old-format backups are
  * automatically migrated to the new schema.  Throws if the payload is not a
  * valid backup so the caller can surface the error to the user.
+ *
+ * NOTE: Only stock data is restored here so the existing
+ * `AppDataProvider.importBackup` stays backwards compatible.  The
+ * higher-level v2 importer in `@/utils/importJson` handles categories.
  */
 export function restoreBackup(payload: unknown): StockBatch[] {
   if (!payload || typeof payload !== 'object') {

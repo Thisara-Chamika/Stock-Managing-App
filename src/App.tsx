@@ -5,6 +5,7 @@ import { AddCalculatorPage } from '@/pages/AddCalculatorPage';
 import { CreateStockPage } from '@/pages/CreateStockPage';
 import { DashboardPage } from '@/pages/DashboardPage';
 import { ManageCategoriesPage } from '@/pages/ManageCategoriesPage';
+import { SettingsPage } from '@/pages/SettingsPage';
 import { StockDetailPage } from '@/pages/StockDetailPage';
 import { StockListPage } from '@/pages/StockListPage';
 import { AppDataProvider } from '@/state/AppDataProvider';
@@ -25,6 +26,7 @@ export default function App(): JSX.Element {
           <Route path="/stock/:id" element={<StockDetailPage />} />
           <Route path="/stock/:id/add" element={<AddCalculatorPage />} />
           <Route path="/categories" element={<ManageCategoriesPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </div>

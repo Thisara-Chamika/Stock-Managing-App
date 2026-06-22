@@ -3,12 +3,23 @@ import { useNavigate } from 'react-router-dom';
 
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { EmptyState } from '@/components/EmptyState';
+import { ExportModal, type ExportFormat } from '@/components/ExportModal';
 import { FloatingActionButton } from '@/components/FloatingActionButton';
 import { StockCard } from '@/components/StockCard';
+import { Toast, type ToastTone } from '@/components/Toast';
 import { TopBar } from '@/components/TopBar';
 import { useAppData } from '@/state/useAppData';
-import { fileTimestamp, formatMoney } from '@/utils/format';
-import { buildBackup, summarizeAllStocks } from '@/utils/storage';
+import { exportExcel } from '@/utils/exportExcel';
+import { exportJsonBackup } from '@/utils/exportJson';
+import { exportPdf } from '@/utils/exportPdf';
+import { formatMoney } from '@/utils/format';
+import { BackupValidationError, readBackupFile } from '@/utils/importJson';
+import { summarizeAllStocks } from '@/utils/storage';
+
+interface ToastState {
+  message: string;
+  tone: ToastTone;
+}
 
 /**
  * Stocks page – lists every batch (newest first), surfaces a sold-revenue
@@ -17,29 +28,35 @@ import { buildBackup, summarizeAllStocks } from '@/utils/storage';
  */
 export function StockListPage(): JSX.Element {
   const navigate = useNavigate();
-  const { stocks, isLoading, importBackup } = useAppData();
+  const { stocks, categories, isLoading, importBackup } = useAppData();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [exportModalOpen, setExportModalOpen] = useState(false);
   const [importPayload, setImportPayload] = useState<unknown | null>(null);
-  const [importError, setImportError] = useState<string | null>(null);
+  const [toast, setToast] = useState<ToastState | null>(null);
 
   const grandTotals = summarizeAllStocks(stocks);
 
-  const handleExport = (): void => {
-    const payload = buildBackup(stocks);
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `calculator-stock-backup-${fileTimestamp()}.json`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+  const handleExport = (format: ExportFormat): void => {
+    setExportModalOpen(false);
+    try {
+      if (format === 'pdf') {
+        exportPdf({ stocks });
+        setToast({ message: 'PDF report exported.', tone: 'success' });
+      } else if (format === 'excel') {
+        exportExcel({ stocks });
+        setToast({ message: 'Excel report exported.', tone: 'success' });
+      } else {
+        exportJsonBackup({ stocks, categories });
+        setToast({ message: 'JSON backup exported.', tone: 'success' });
+      }
+    } catch (error) {
+      console.error(error);
+      setToast({ message: 'Failed to export. Please try again.', tone: 'error' });
+    }
   };
 
   const handleImportClick = (): void => {
-    setImportError(null);
     fileInputRef.current?.click();
   };
 
@@ -48,12 +65,11 @@ export function StockListPage(): JSX.Element {
     event.target.value = '';
     if (!file) return;
     try {
-      const text = await file.text();
-      const parsed = JSON.parse(text) as unknown;
+      const parsed = await readBackupFile(file);
       setImportPayload(parsed);
     } catch (error) {
-      console.error(error);
-      setImportError('Could not read that file. Make sure it is a valid backup JSON.');
+      const message = error instanceof BackupValidationError ? error.message : 'Invalid backup file.';
+      setToast({ message, tone: 'error' });
     }
   };
 
@@ -62,10 +78,11 @@ export function StockListPage(): JSX.Element {
     try {
       importBackup(importPayload);
       setImportPayload(null);
+      setToast({ message: 'Backup imported successfully.', tone: 'success' });
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to import backup.';
-      setImportError(message);
+      const message = error instanceof BackupValidationError ? error.message : 'Invalid backup file.';
       setImportPayload(null);
+      setToast({ message, tone: 'error' });
     }
   };
 
@@ -75,7 +92,11 @@ export function StockListPage(): JSX.Element {
         title="Stock Tracker"
         trailing={
           <div className="flex items-center gap-1">
-            <IconAction label="Export backup" onClick={handleExport} disabled={stocks.length === 0}>
+            <IconAction
+              label="Export data"
+              onClick={() => setExportModalOpen(true)}
+              disabled={stocks.length === 0}
+            >
               <svg
                 width="20"
                 height="20"
@@ -180,23 +201,31 @@ export function StockListPage(): JSX.Element {
         </ul>
       )}
 
-      {importError ? (
-        <p className="mt-4 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
-          {importError}
-        </p>
-      ) : null}
-
       <FloatingActionButton label="Create new stock batch" onClick={() => navigate('/create')} />
+
+      <ExportModal
+        open={exportModalOpen}
+        onExport={handleExport}
+        onCancel={() => setExportModalOpen(false)}
+        disabled={stocks.length === 0}
+      />
 
       <ConfirmDialog
         open={importPayload !== null}
-        title="Replace all data?"
-        description="Importing this backup will overwrite your current stock list. This cannot be undone."
-        confirmLabel="Replace data"
+        title="Replace your current data?"
+        description="Importing this backup will replace your current data. Are you sure?"
+        confirmLabel="Import"
         cancelLabel="Cancel"
         variant="danger"
         onConfirm={confirmImport}
         onCancel={() => setImportPayload(null)}
+      />
+
+      <Toast
+        open={toast !== null}
+        message={toast?.message ?? ''}
+        tone={toast?.tone ?? 'info'}
+        onClose={() => setToast(null)}
       />
     </div>
   );
